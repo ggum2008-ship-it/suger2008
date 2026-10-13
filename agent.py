@@ -7,8 +7,8 @@
   ANTHROPIC_API_KEY   Claude API 키
   GMAIL_ADDRESS       보내는(받는) Gmail 주소
   GMAIL_APP_PASSWORD  Gmail 앱 비밀번호 16자리
-시험 모드: DRY_RUN=1 이면 API를 부르지 않고 sample/ 의 예시 원고로 영상을 만들고,
-          메일은 보내지 않고 out/mail_preview.eml 로 저장한다.
+시험 모드: USE_SAMPLE=1 이면 API를 부르지 않고 sample/ 의 예시 원고로 영상을 만들어 메일로 보낸다.
+          (DRY_RUN=1 을 함께 주면 메일도 보내지 않고 out/mail_preview.eml 로 저장한다.)
 """
 import datetime as dt
 import json, os, re, smtplib, sys, traceback
@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parent
 KST = dt.timezone(dt.timedelta(hours=9))
 DAYS = "월화수목금토일"
 CATEGORIES = ["사회·시사", "교육", "AI·IT", "생활·경제"]
-DRY_RUN = os.environ.get("DRY_RUN") == "1"
+DRY_RUN = os.environ.get("DRY_RUN") == "1"          # 메일을 보내지 않고 파일로 저장
+USE_SAMPLE = DRY_RUN or os.environ.get("USE_SAMPLE") == "1"   # API 대신 예시 원고 사용
 
 
 # ───────────────────────── 기록 ─────────────────────────
@@ -209,7 +210,7 @@ def run(mode):
     out = ROOT / "out"
     out.mkdir(exist_ok=True)
 
-    if DRY_RUN:
+    if USE_SAMPLE:
         spec = load_json(f"sample/{mode}.json", None)
         urls = spec.get("source_urls", [])
     else:
@@ -235,6 +236,8 @@ def run(mode):
         secs = issue_maker.sec(3, spec) + issue_maker.sec(6, spec) * n + issue_maker.sec(4, spec) - 0.5 * (n + 1)
         length = f"{secs:.0f}초"
         subject = f"[오늘의 이슈] {now:%m/%d} {spec['yt_titles'][0]}"
+        if USE_SAMPLE:
+            subject = "[시험] " + subject
         entries = [{"date": f"{now:%Y-%m-%d}", "mode": "daily", "category": spec["category"], "title": spec["title"]}]
     else:
         spec["speed"] = settings.get("주간영상_재생속도", "보통")
@@ -243,12 +246,14 @@ def run(mode):
         secs = sum(float(x) for x in re.findall(r"duration ([\d.]+)", (out / "frames.txt").read_text()))
         length = f"{int(secs)//60}분 {int(secs)%60}초"
         subject = f"[주간 이슈] {spec['week']} {spec['yt_titles'][0]}"
+        if USE_SAMPLE:
+            subject = "[시험] " + subject
         entries = [{"date": f"{now:%Y-%m-%d}", "mode": "weekly", "category": "주간", "title": spec["cover_title"]}]
 
     upload_txt = (out / "youtube_upload.txt").read_text(encoding="utf-8")
     send_mail(subject, mail_body(spec, upload_txt, urls, mode, length),
               [video, picture, out / "youtube_upload.txt"], settings)
-    if not DRY_RUN:
+    if not USE_SAMPLE:
         for e in entries:
             save_history(history, e)
 
