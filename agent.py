@@ -265,12 +265,16 @@ def main():
     except Exception:
         err = traceback.format_exc()
         print(err)
+        last = err.strip().splitlines()[-1].replace("%", "%25").replace("\r", "").replace("\n", " ")
+        print(f"::error title=만들기 실패::{last[:400]}")   # GitHub 실행 기록 맨 위에 원인 한 줄을 띄운다
         try:
             send_mail(f"[오늘의 이슈] 만들기 실패 ({mode})",
                       "오늘 영상을 만들지 못했습니다. 아래 내용을 Claude에게 보여 주면 고쳐 줍니다.\n\n" + err[-3000:],
                       [], load_json("settings.json", {}))
         except Exception:
-            print("실패 알림 메일도 보내지 못했습니다:", traceback.format_exc())
+            e2 = traceback.format_exc().strip().splitlines()[-1]
+            print("실패 알림 메일도 보내지 못했습니다:", e2)
+            print(f"::error title=메일 보내기 실패::{e2[:400]}")
         sys.exit(1)
 
 
