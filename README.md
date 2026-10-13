@@ -16,15 +16,7 @@
 3. 이름에 `issue-agent`를 쓰고, **Private(비공개)**를 고른 뒤 `Create repository`를 눌러요.
 
 ### 2. 파일 올리기
-1. 받은 zip 파일의 압축을 풀어요.
-2. 저장소 화면에서 `uploading an existing file`을 눌러요.
-3. 압축 푼 폴더 안의 **보이는 파일과 폴더를 모두** 끌어다 놓고 `Commit changes`를 눌러요.
-   (agent.py, issue_maker.py, settings.json, history.json, requirements.txt, README.md, sample 폴더, 자동실행_설정 폴더)
-4. 자동 실행 파일 2개는 따로 만들어요. (`.github` 폴더는 컴퓨터에서 숨김 폴더라 끌어 놓기가 잘 안 돼요.)
-   - `Add file` → `Create new file`
-   - 파일 이름 칸에 `.github/workflows/daily.yml` 을 그대로 써요.
-   - `자동실행_설정/daily.yml` 파일을 메모장으로 열어 내용 전체를 복사해 붙여넣고 `Commit changes`.
-   - 같은 방법으로 `.github/workflows/weekly.yml` 도 만들어요.
+Claude가 이미 모든 파일을 올려 두었어요. 할 일 없음!
 
 ### 3. 비밀번호 3개 준비하기
 | 이름 | 무엇인가요 | 어디서 받나요 |
