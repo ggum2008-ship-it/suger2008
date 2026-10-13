@@ -187,8 +187,9 @@ def send_mail(subject, body, files, settings):
         print("시험 모드: 메일을 보내지 않고 저장했습니다 →", out)
         return
     password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    missing = [n for n in ("ANTHROPIC_API_KEY", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD") if not os.environ.get(n)]
     if not sender or not password:
-        raise RuntimeError("GMAIL_ADDRESS 또는 GMAIL_APP_PASSWORD 비밀값이 비어 있습니다.")
+        raise RuntimeError(f"비어 있는 비밀값: {missing}")
     errors = []
     for port in (465, 587):                      # 한쪽 길이 막히면 다른 길로 다시 시도
         stage = "연결"
