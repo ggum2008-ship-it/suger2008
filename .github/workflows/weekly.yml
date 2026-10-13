@@ -1,0 +1,52 @@
+name: 주간 이슈 정리 영상 (매주 일요일)
+
+on:
+  schedule:
+    - cron: "30 23 * * 6"      # 매주 일요일 한국 시간 오전 8시 30분 (GitHub 사정에 따라 조금 늦을 수 있음)
+  workflow_dispatch:            # 'Run workflow' 버튼으로 지금 바로 실행
+    inputs:
+      test:
+        description: "시험 모드 (API 비용 없이 예시 영상으로 메일만 확인)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 영상 도구와 한글 글꼴 설치
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk fonts-noto-cjk-extra
+          pip install -q -r requirements.txt
+
+      - name: 주간 영상 만들고 메일 보내기
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DRY_RUN: ${{ inputs.test && '1' || '0' }}
+        run: python agent.py weekly
+
+      - name: 다룬 이슈 기록 저장
+        if: ${{ !inputs.test }}
+        run: |
+          git config user.name "issue-agent"
+          git config user.email "issue-agent@users.noreply.github.com"
+          git add history.json
+          git diff --cached --quiet || (git commit -m "기록: $(date +%F) 주간 이슈" && git push)
