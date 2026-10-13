@@ -107,14 +107,18 @@ def weekly_prompt(now, settings, history):
 # ───────────────────────── Claude API ─────────────────────────
 def ask_claude(prompt, model, max_searches):
     import anthropic
-    client = anthropic.Anthropic(timeout=900)
+    key = "".join(os.environ.get("ANTHROPIC_API_KEY", "").split())   # 붙여넣을 때 섞인 빈칸·줄바꿈 제거
+    if not key.startswith("sk-ant-"):
+        raise RuntimeError("ANTHROPIC_API_KEY가 'sk-ant-'로 시작하지 않습니다. 키를 다시 확인하세요.")
+    client = anthropic.Anthropic(api_key=key, timeout=900, max_retries=4)
     tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": max_searches,
               "user_location": {"type": "approximate", "city": "Seoul", "country": "KR", "timezone": "Asia/Seoul"}}]
     messages = [{"role": "user", "content": prompt}]
     cited = []
     for attempt in range(3):              # JSON이 잘못되면 최대 2번 다시 요청
         for _ in range(8):                # 긴 검색은 pause_turn으로 나뉘어 올 수 있다
-            resp = client.messages.create(model=model, max_tokens=8000, tools=tools, messages=messages)
+            with client.messages.stream(model=model, max_tokens=8000, tools=tools, messages=messages) as st:
+                resp = st.get_final_message()     # 스트리밍: 검색이 길어져도 연결이 끊기지 않게
             messages.append({"role": "assistant", "content": resp.content})
             if resp.stop_reason != "pause_turn":   # 멈춘 경우 받은 응답을 그대로 붙여 다시 보내면 이어서 한다
                 break
@@ -171,7 +175,7 @@ def check(spec, mode):
 
 # ───────────────────────── Gmail ─────────────────────────
 def send_mail(subject, body, files, settings):
-    sender = os.environ.get("GMAIL_ADDRESS", "")
+    sender = os.environ.get("GMAIL_ADDRESS", "").strip()
     to = [sender] + settings.get("추가로_받을_메일", [])
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, sender, ", ".join(t for t in to if t)
@@ -186,7 +190,7 @@ def send_mail(subject, body, files, settings):
         out.write_bytes(bytes(msg))
         print("시험 모드: 메일을 보내지 않고 저장했습니다 →", out)
         return
-    password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    password = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
     missing = [n for n in ("ANTHROPIC_API_KEY", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD") if not os.environ.get(n)]
     if not sender or not password:
         raise RuntimeError(f"비어 있는 비밀값: {missing}")
