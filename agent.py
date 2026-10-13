@@ -186,10 +186,30 @@ def send_mail(subject, body, files, settings):
         out.write_bytes(bytes(msg))
         print("시험 모드: 메일을 보내지 않고 저장했습니다 →", out)
         return
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-        s.login(sender, os.environ["GMAIL_APP_PASSWORD"])
-        s.send_message(msg)
-    print("메일 보냄 →", msg["To"])
+    password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    if not sender or not password:
+        raise RuntimeError("GMAIL_ADDRESS 또는 GMAIL_APP_PASSWORD 비밀값이 비어 있습니다.")
+    errors = []
+    for port in (465, 587):                      # 한쪽 길이 막히면 다른 길로 다시 시도
+        stage = "연결"
+        try:
+            if port == 465:
+                s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60)
+            else:
+                s = smtplib.SMTP("smtp.gmail.com", 587, timeout=60)
+                s.ehlo(); s.starttls(); s.ehlo()
+            with s:
+                stage = "로그인"
+                s.login(sender, password)
+                stage = "보내기"
+                s.send_message(msg)
+            print("메일 보냄 →", msg["To"])
+            return
+        except smtplib.SMTPAuthenticationError as e:
+            raise RuntimeError(f"Gmail 로그인 거절: 앱 비밀번호 또는 주소를 확인하세요 ({e.smtp_code})")
+        except (smtplib.SMTPException, OSError) as e:
+            errors.append(f"{port}번 {stage} 단계: {type(e).__name__} {e}")
+    raise RuntimeError("메일 보내기 실패 — " + " / ".join(errors))
 
 
 def mail_body(spec, upload_txt, urls, mode, length):
