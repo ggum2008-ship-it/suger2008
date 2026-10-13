@@ -104,6 +104,19 @@ def weekly_prompt(now, settings, history):
 {WEEKLY_FORMAT % (week, rng, 45 if fast else 60, CATEGORIES)}"""
 
 
+VERIFY_PROMPT = """너는 깐깐한 사실 확인 담당 편집자다. 아래 원고(JSON)는 유튜브에 그대로 나갈 내용이다.
+web_search로 기사 원문을 다시 찾아, 원고의 문장 하나하나(제목·부제·본문·yt_titles·yt_hook 포함)를 확인한다.
+- 수치·날짜·기관명·사람 이름·발언은 기사 2곳 이상에서 확인되면 그대로 둔다.
+- 따옴표로 옮긴 발언은 기사에 실린 표현과 같아야 한다. 다르면 기사 표현으로 고치거나 따옴표를 뺀다.
+- 기사에서 확인되지 않는 내용은 확인된 사실로 바꾸거나 지운다. 지워서 문장이 짧아지면 확인된 다른 사실로 채운다.
+- 기관의 입장을 부풀리지 않는다 (예: '여러 방안을 검토'를 '전환을 결정'처럼 바꾸지 않는다).
+- 형식과 글자 수 제한은 원래 규칙을 그대로 지킨다. source_urls에는 실제로 확인한 기사 주소를 넣는다.
+- 마지막에 같은 형식의 JSON 하나만 <json></json> 사이에 출력하고, JSON 안에 "fact_notes" 항목으로 고친 점을 짧은 문장 목록으로 적는다 (고친 것이 없으면 빈 목록).
+
+[원고]
+"""
+
+
 # ───────────────────────── Claude API ─────────────────────────
 def ask_claude(prompt, model, max_searches):
     import anthropic
@@ -223,6 +236,9 @@ def mail_body(spec, upload_txt, urls, mode, length):
     guide += "4. 썸네일 수정에서 첨부한 thumbnail.png 선택\n5. 공개로 올리기\n6. 올린 뒤 ③을 댓글로 달고 '고정'\n" if mode == "weekly" \
         else "4. 공개로 올리기\n5. 올린 뒤 ③을 댓글로 달고 '고정'\n"
     check_txt = "\n[올리기 전 확인]\n· 영상에서 틀린 글자가 없는지\n· 아래 기사 링크 하나를 열어 숫자가 같은지\n"
+    notes = spec.get("fact_notes") or []
+    if notes:
+        check_txt += "\n[사실 확인 중 고친 점]\n" + "\n".join(f"· {n}" for n in notes) + "\n"
     src = "\n[참고한 기사]\n" + "\n".join(f"· {u}" for u in urls) + "\n" if urls else ""
     return f"영상 길이 {length} · 재생 속도 {spec.get('speed', '보통')}\n\n{guide}{check_txt}{src}\n\n{upload_txt}"
 
@@ -249,6 +265,15 @@ def run(mode):
                 if attempt:
                     raise
                 prompt += f"\n\n(이전 시도에서 '{e}' 문제가 있었다. 이번에는 형식을 정확히 지킨다.)"
+        # 사실 재확인: 다른 눈으로 한 번 더 기사와 대조해 확인 안 된 문장을 고친다
+        try:
+            checked, cited2 = ask_claude(VERIFY_PROMPT + json.dumps(spec, ensure_ascii=False, indent=1),
+                                         settings.get("AI_모델", "claude-sonnet-5-5"), 8 if mode == "daily" else 15)
+            check(checked, mode)
+            spec, cited = checked, cited + cited2
+        except Exception as e:
+            print("::warning title=사실 재확인 건너뜀::", str(e)[:300])
+            spec.setdefault("fact_notes", []).append("사실 재확인 단계를 마치지 못했습니다. 올리기 전에 기사와 꼭 대조해 주세요.")
         urls = list(dict.fromkeys(
             spec.get("source_urls", []) + [u for it in spec.get("issues", []) for u in it.get("source_urls", [])] + cited))[:12]
 
