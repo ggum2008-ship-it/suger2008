@@ -380,8 +380,17 @@ def run(mode):
             save_history(history, e)
 
 
+def already_done(mode):
+    """예약 실행이 여러 번 잡혀 있어도 하루(주간은 그날) 한 번만 보내도록 기록을 확인한다."""
+    today = dt.datetime.now(KST).strftime("%Y-%m-%d")
+    return any(h.get("mode") == mode and h.get("date") == today for h in load_json("history.json", []))
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "daily"
+    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and already_done(mode):
+        print(f"오늘 {mode} 메일은 이미 보냈습니다. 이번 예약 실행은 건너뜁니다.")
+        return
     try:
         run(mode)
     except Exception:

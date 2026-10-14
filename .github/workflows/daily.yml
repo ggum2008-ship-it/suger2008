@@ -1,8 +1,11 @@
 name: 오늘의 이슈 쇼츠 (매일)
 
 on:
-  schedule:
-    - cron: "30 21 * * *"      # 매일 한국 시간 오전 6시 30분 (GitHub 사정에 따라 조금 늦을 수 있음)
+  schedule:            # GitHub 예약이 가끔 빠지거나 늦어서 여러 번 걸어 둔다. 이미 보낸 날은 자동으로 건너뜀
+    - cron: "30 21 * * *"   # 한국 시간 6시 30분
+    - cron: "10 22 * * *"   # 한국 시간 7시 10분
+    - cron: "50 22 * * *"   # 한국 시간 7시 50분
+    - cron: "40 23 * * *"   # 한국 시간 8시 40분
   workflow_dispatch:            # 'Run workflow' 버튼으로 지금 바로 실행
     inputs:
       test:
@@ -49,4 +52,8 @@ jobs:
           git config user.name "issue-agent"
           git config user.email "issue-agent@users.noreply.github.com"
           git add history.json
-          git diff --cached --quiet || (git commit -m "기록: $(date +%F) 오늘의 이슈" && git push)
+          if ! git diff --cached --quiet; then
+            git commit -m "기록: $(date +%F) 오늘의 이슈"
+            git pull --rebase -q
+            git push
+          fi
