@@ -79,7 +79,7 @@ WRITE_RULES = """
 - 기사체 '~다'로 쓰고, 기사 문장을 통째로 베끼지 않는다. 같은 어미·구조를 반복하지 않는다.
 - evidence: 각 카드(주간은 각 핵심)가 근거로 삼은 사실 번호를 적는다. 예: {"1번 카드": ["F2","F5"]}
 - yt_hook: 검색될 핵심 낱말 2~3개가 자연스럽게 들어간 2문장. pinned_comment: 번호로 쉽게 답하는 질문 하나(① ②).
-- hashtags: 모두 합쳐 5개 이내.
+- hashtags: 5~8개. 이슈의 핵심 낱말(사람들이 검색할 말)을 띄어쓰기 없이 붙여 쓴다. 예: "#수시원서접수", "#대입". 반드시 넣는다.
 - 마지막에 JSON 하나만 <json></json> 사이에 출력한다.
 """
 
@@ -106,14 +106,14 @@ REVIEW_RULES = """너는 깐깐한 편집장이다. 아래 원고를 [확인된 
 """
 
 
-def research_prompt(mode, now, settings, history):
+def research_prompt(mode, now, settings, history, cat=None, taken=()):
     if mode == "daily":
-        cat = settings["요일별_분야"][DAYS[now.weekday()]]
-        recent = [h["title"] for h in history if h.get("mode") == "daily"][-14:]
+        cat = cat or settings["요일별_분야"][DAYS[now.weekday()]]
+        recent = [h["title"] for h in history if h.get("mode") == "daily"][-20:] + list(taken)
         task = f"""오늘은 {now:%Y년 %m월 %d일}({DAYS[now.weekday()]}) 한국 시간 아침이다. 유튜브 쇼츠 카드뉴스를 만들기 위한 취재를 한다.
 오늘의 분야는 '{cat}'이다. 최근 24~48시간 사이 한국 국내 '{cat}' 이슈 중 많은 사람에게 영향을 주고, 사람들이 '왜?'라고 궁금해할 만한 것 1건을 고른다.
-(다른 분야에 훨씬 큰 국내 이슈가 있으면 바꿔도 된다: {CATEGORIES}) 48시간 안에 마땅한 이슈가 없으면 1주일 이내로 넓힌다.
-최근에 이미 다룬 이슈(피할 것): {recent if recent else '없음'}
+반드시 '{cat}' 분야 안에서 고른다. 48시간 안에 마땅한 이슈가 없으면 1주일 이내로 넓힌다.
+이미 다룬 이슈(같은 사건·같은 발표는 피할 것): {recent if recent else '없음'}
 고른 이슈에 대해 사실을 12개 이상 적는다."""
         return task + RESEARCH_RULES, cat
     start = (now - dt.timedelta(days=6)).date()
@@ -179,9 +179,9 @@ def _call(client, model, messages, tools=None, max_tokens=8000):
     return resp, blocks
 
 
-def research(mode, now, settings, history, model):
+def research(mode, now, settings, history, model, cat=None, taken=()):
     client = _client()
-    prompt, cat = research_prompt(mode, now, settings, history)
+    prompt, cat = research_prompt(mode, now, settings, history, cat, taken)
     tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 12 if mode == "daily" else 30,
               "user_location": {"type": "approximate", "city": "Seoul", "country": "KR", "timezone": "Asia/Seoul"}}]
     messages = [{"role": "user", "content": prompt}]
@@ -332,15 +332,105 @@ def mail_body(spec, upload_txt, urls, mode, length):
 
 
 # ───────────────────────── 실행 ─────────────────────────
+def daily_categories(now, settings):
+    """오늘 만들 이슈들의 분야 순서. 요일 분야를 맨 앞에, 나머지 분야를 차례로, 남으면 요일 분야부터 다시."""
+    n = int(settings.get("하루_이슈_개수", 5))
+    first = settings["요일별_분야"][DAYS[now.weekday()]]
+    order = [first] + [c for c in CATEGORIES if c != first]
+    return [order[i % len(order)] for i in range(n)]
+
+
+def make_one_daily(i, cat, now, settings, history, taken, out):
+    """이슈 하나를 취재→집필→검사→영상까지 만든다. 결과 묶음(dict)을 돌려준다."""
+    d = out / f"issue{i}"
+    d.mkdir(parents=True, exist_ok=True)
+    if USE_SAMPLE:
+        spec = load_json("sample/daily.json", None)
+        urls = spec.get("source_urls", [])
+    else:
+        model = settings.get("AI_모델", "claude-sonnet-5-5")
+        facts, issue, _ = research("daily", now, settings, history, model, cat, taken)
+        spec = write_and_verify("daily", now, settings, facts, issue, cat, model)
+        check(spec, "daily")
+        urls = list(dict.fromkeys(c["url"] for f in facts for c in f["cites"]))[:8]
+    spec["date"] = f"{now:%Y.%m.%d}"
+    spec["speed"] = settings.get("쇼츠_재생속도", "보통")
+    issue_maker.shorts(spec, str(d))
+    n = len(spec["slides"])
+    secs = issue_maker.sec(3, spec) + issue_maker.sec(6, spec) * n + issue_maker.sec(4, spec) - 0.5 * (n + 1)
+    files = []
+    for src, name in [("shorts.mp4", f"{i}_shorts.mp4"), ("preview.png", f"{i}_preview.png"), ("youtube_upload.txt", f"{i}_youtube_upload.txt")]:
+        dst = out / name
+        dst.write_bytes((d / src).read_bytes())
+        files.append(dst)
+    return {"spec": spec, "urls": urls, "length": f"{secs:.0f}초", "files": files,
+            "upload": (d / "youtube_upload.txt").read_text(encoding="utf-8")}
+
+
+def issue_block(i, total, r):
+    spec = r["spec"]
+    lines = [f"\n\n■■■■■■■■ 이슈 {i}/{total} · {spec.get('category', '')} · {r['length']} ■■■■■■■■",
+             f"첨부: {i}_shorts.mp4 / {i}_preview.png / {i}_youtube_upload.txt"]
+    if spec.get("_check"):
+        lines.append(f"자동 사실 검사: {spec['_check']}")
+    for note in spec.get("fact_notes") or []:
+        lines.append(f"고친 점: {note}")
+    if r["urls"]:
+        lines.append("참고한 기사:\n" + "\n".join(f"· {u}" for u in r["urls"]))
+    return "\n".join(lines) + "\n\n" + r["upload"]
+
+
+def run_daily(settings, history, now, out):
+    cats = daily_categories(now, settings)
+    results, fails, taken = [], [], []
+    for i, cat in enumerate(cats, 1):
+        try:
+            r = make_one_daily(i, cat, now, settings, history, taken, out)
+            results.append((i, r))
+            taken.append(r["spec"]["title"])
+            print(f"이슈 {i}/{len(cats)} 완료: {r['spec']['title']}")
+        except Exception as e:
+            fails.append(f"이슈 {i}({cat}): {str(e)[:200]}")
+            print(f"::warning title=이슈 {i} 건너뜀::{str(e)[:300]}")
+    if not results:
+        raise RuntimeError("오늘은 사실 검사를 통과한 이슈가 하나도 없어 영상을 만들지 않았습니다. " + " / ".join(fails))
+
+    # 첨부 용량(Gmail 25MB 제한) 확인: 넘치면 미리보기 그림부터 뺀다
+    files = [f for _, r in results for f in r["files"]]
+    if sum(f.stat().st_size for f in files) > 22 * 1024 * 1024:
+        files = [f for f in files if not f.name.endswith("_preview.png")]
+
+    guide = ("[올리는 법 — 이슈마다 반복]\n1. 첨부한 ○_shorts.mp4 영상을 휴대폰에 저장\n2. 유튜브 앱 '+' → 영상 선택\n"
+             "3. 아래 그 이슈의 ① 제목 하나, ② 설명 전체를 복사해 붙여넣기 (설명의 '운영자 한마디' 칸에 내 생각 한 줄)\n"
+             "   ※ 해시태그는 ② 설명 맨 위와 맨 끝에 이미 들어 있어요. 따로 필요하면 ④를 복사하세요.\n"
+             "4. 공개로 올리기 (하루에 몰아 올리기보다 2~3시간 간격을 두면 더 좋아요)\n5. 올린 뒤 ③을 댓글로 달고 '고정'\n"
+             "\n[올리기 전 확인]\n· 영상에서 틀린 글자가 없는지\n· 기사 링크 하나를 열어 숫자가 같은지\n")
+    summary = "[오늘의 이슈 목록]\n" + "\n".join(f"{i}. ({r['spec'].get('category')}) {r['spec']['yt_titles'][0]}" for i, r in results)
+    if fails:
+        summary += "\n\n[오늘 빠진 이슈 — 사실 검사를 통과하지 못해 보내지 않았어요]\n" + "\n".join(f"· {x}" for x in fails)
+    body = f"오늘의 이슈 {len(results)}건 · 재생 속도 {settings.get('쇼츠_재생속도', '보통')}\n\n{summary}\n\n{guide}" + \
+        "".join(issue_block(i, len(cats), r) for i, r in results)
+    subject = f"[오늘의 이슈] {now:%m/%d} {len(results)}건 · {results[0][1]['spec']['yt_titles'][0]}"
+    if USE_SAMPLE:
+        subject = "[시험] " + subject
+    send_mail(subject, body, files, settings)
+    if not USE_SAMPLE:
+        for i, r in results:
+            save_history(history, {"date": f"{now:%Y-%m-%d}", "mode": "daily", "category": r["spec"]["category"],
+                                   "title": r["spec"]["title"]})
+
+
 def run(mode):
     settings = load_json("settings.json", {})
     history = load_json("history.json", [])
     now = dt.datetime.now(KST)
     out = ROOT / "out"
     out.mkdir(exist_ok=True)
+    if mode == "daily":
+        return run_daily(settings, history, now, out)
 
     if USE_SAMPLE:
-        spec = load_json(f"sample/{mode}.json", None)
+        spec = load_json("sample/weekly.json", None)
         urls = spec.get("source_urls", [])
     else:
         model = settings.get("AI_모델", "claude-sonnet-5-5")
@@ -348,36 +438,19 @@ def run(mode):
         spec = write_and_verify(mode, now, settings, facts, issue, cat, model)
         check(spec, mode)
         urls = list(dict.fromkeys(c["url"] for f in facts for c in f["cites"]))[:12]
-
-    if mode == "daily":
-        spec["date"] = f"{now:%Y.%m.%d}"
-        spec["speed"] = settings.get("쇼츠_재생속도", "보통")
-        issue_maker.shorts(spec, str(out))
-        video, picture = out / "shorts.mp4", out / "preview.png"
-        n = len(spec["slides"])
-        secs = issue_maker.sec(3, spec) + issue_maker.sec(6, spec) * n + issue_maker.sec(4, spec) - 0.5 * (n + 1)
-        length = f"{secs:.0f}초"
-        subject = f"[오늘의 이슈] {now:%m/%d} {spec['yt_titles'][0]}"
-        if USE_SAMPLE:
-            subject = "[시험] " + subject
-        entries = [{"date": f"{now:%Y-%m-%d}", "mode": "daily", "category": spec["category"], "title": spec["title"]}]
-    else:
-        spec["speed"] = settings.get("주간영상_재생속도", "보통")
-        issue_maker.weekly(spec, str(out))
-        video, picture = out / "weekly.mp4", out / "thumbnail.png"
-        secs = sum(float(x) for x in re.findall(r"duration ([\d.]+)", (out / "frames.txt").read_text()))
-        length = f"{int(secs)//60}분 {int(secs)%60}초"
-        subject = f"[주간 이슈] {spec['week']} {spec['yt_titles'][0]}"
-        if USE_SAMPLE:
-            subject = "[시험] " + subject
-        entries = [{"date": f"{now:%Y-%m-%d}", "mode": "weekly", "category": "주간", "title": spec["cover_title"]}]
-
+    spec["speed"] = settings.get("주간영상_재생속도", "보통")
+    issue_maker.weekly(spec, str(out))
+    video, picture = out / "weekly.mp4", out / "thumbnail.png"
+    secs = sum(float(x) for x in re.findall(r"duration ([\d.]+)", (out / "frames.txt").read_text()))
+    length = f"{int(secs)//60}분 {int(secs)%60}초"
+    subject = f"[주간 이슈] {spec['week']} {spec['yt_titles'][0]}"
+    if USE_SAMPLE:
+        subject = "[시험] " + subject
     upload_txt = (out / "youtube_upload.txt").read_text(encoding="utf-8")
     send_mail(subject, mail_body(spec, upload_txt, urls, mode, length),
               [video, picture, out / "youtube_upload.txt"], settings)
     if not USE_SAMPLE:
-        for e in entries:
-            save_history(history, e)
+        save_history(history, {"date": f"{now:%Y-%m-%d}", "mode": "weekly", "category": "주간", "title": spec["cover_title"]})
 
 
 def already_done(mode):

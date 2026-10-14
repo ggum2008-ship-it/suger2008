@@ -4,7 +4,7 @@
   python3 issue_maker.py weekly spec.json 출력폴더   → 가로 영상 약 5분 weekly.mp4 + thumbnail.png + youtube_upload.txt
 필요: Pillow, ffmpeg, Noto Sans CJK 글꼴
 """
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 from PIL import Image, ImageDraw, ImageFont
 
 import glob
@@ -63,6 +63,27 @@ def lines_at(d, x, y, lines, font, fill, gap):
 def mmss(sec):
     return f"{int(sec) // 60}:{int(sec) % 60:02d}"
 
+# ───────────── 해시태그 ─────────────
+CAT_TAG = {"사회·시사": "#사회이슈", "교육": "#교육뉴스", "AI·IT": "#IT뉴스", "생활·경제": "#경제뉴스"}
+
+def clean_hashtags(spec, kind):
+    """AI가 준 해시태그를 정리하고, 빠져도 기본 태그는 반드시 들어가게 한다."""
+    raw = spec.get("hashtags") or []
+    if isinstance(raw, str):
+        raw = re.split(r"[\s,]+", raw)
+    tags = []
+    for t in raw:
+        t = re.sub(r"[^0-9A-Za-z가-힣_]", "", str(t))     # 띄어쓰기·기호 제거 (해시태그는 붙여 써야 함)
+        if t:
+            tags.append("#" + t)
+    base = ["#오늘의이슈", "#카드뉴스"] if kind == "shorts" else ["#주간이슈", "#이슈정리"]
+    cats = [spec.get("category")] if kind == "shorts" else [it.get("category") for it in spec.get("issues", [])]
+    base += [CAT_TAG[c] for c in cats if c in CAT_TAG]
+    if kind == "shorts":
+        base.append("#shorts")
+    out = list(dict.fromkeys(tags + base))
+    return out[:10]
+
 # ───────────── 업로드 글 (제목 후보·설명·고정 댓글) ─────────────
 def write_upload(spec, out, kind, chapters=None):
     titles = spec.get("yt_titles") or [spec.get("title", "")]
@@ -73,14 +94,16 @@ def write_upload(spec, out, kind, chapters=None):
     else:
         points = [f"{i}. {it['title']}" for i, it in enumerate(spec.get("issues", []), 1)]
         sources = [it.get("source", "") for it in spec.get("issues", [])]
-    desc = [spec.get("yt_hook", ""), "", "✍️ 운영자 한마디: (여기에 내 생각 한 줄을 적어 주세요)", "",
+    tags = clean_hashtags(spec, kind)
+    spec["hashtags"] = tags
+    desc = [" ".join(tags[:3]), spec.get("yt_hook", ""), "", "✍️ 운영자 한마디: (여기에 내 생각 한 줄을 적어 주세요)", "",
             "📌 핵심 정리" if kind == "shorts" else "📌 이번 주 다룬 이슈"] + points
     if chapters:
         desc += ["", "⏱ 목차"] + [f"{a} {b}" for a, b in chapters]
     desc += ["", "📰 출처"] + [s.replace("출처: ", "") for s in sources if s]
     desc += ["", "이 영상은 AI로 자료를 정리하고 운영자가 사실을 확인한 뒤 올립니다.",
              "매일 아침 1분 이슈 쇼츠, 주말에는 주간 정리 영상이 올라옵니다.", "",
-             " ".join(spec.get("hashtags", []))]
+             " ".join(tags)]
     with open(os.path.join(out, "youtube_upload.txt"), "w", encoding="utf-8") as f:
         f.write("━━━━ ① 제목 (하나만 골라 복사) ━━━━\n")
         for i, t in enumerate(titles, 1):
@@ -88,6 +111,7 @@ def write_upload(spec, out, kind, chapters=None):
         f.write("\n━━━━ ② 설명 (아래 전부 복사) ━━━━\n" + "\n".join(desc).strip() + "\n")
         if spec.get("pinned_comment"):
             f.write("\n━━━━ ③ 고정 댓글 (올린 뒤 내 댓글로 달고 '고정') ━━━━\n" + spec["pinned_comment"] + "\n")
+        f.write("\n━━━━ ④ 해시태그 (설명 맨 끝에 이미 들어 있음 · 따로 필요할 때 복사) ━━━━\n" + " ".join(tags) + "\n")
 
 # ───────────── 쇼츠 (세로 1080×1920) ─────────────
 SW, SH = 1080, 1920
