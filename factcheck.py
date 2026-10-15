@@ -146,6 +146,10 @@ def script_texts(spec, mode):
         t[f"제목후보{i}"] = x
     if mode == "daily":
         t["표지 제목"] = spec.get("title", "")
+        t["표지 질문"] = spec.get("kicker", "")
+        t["표지 큰 숫자"] = spec.get("big_number", "")
+        t["표지 숫자 설명"] = spec.get("big_label", "")
+        t["마지막 질문"] = spec.get("outro_question", "")
         t["부제"] = spec.get("subtitle", "")
         for i, s in enumerate(spec.get("slides", []), 1):
             t[f"{i}번 카드 소제목"] = s.get("heading", "")

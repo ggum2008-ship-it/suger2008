@@ -60,6 +60,9 @@ HOOK_RULES = """
   · 2번 카드: 그 숫자가 왜 중요한지(비교·전과 후·규모).
   · 3번 카드: 사람들이 잘 모르는 의외의 사실이나 반전.
   · 4번 카드: 시청자 생활에 미치는 영향과 생각해 볼 질문.
+- 표지는 '질문(kicker) → 큰 숫자(big_number) → 제목' 순서로 한눈에 읽힌다. 숫자는 이슈에서 가장 의외이거나 규모가 큰 것을 고른다.
+  큰 숫자가 마땅치 않으면 big_number를 빈칸으로 두고 제목을 더 날카롭게 쓴다.
+- 각 카드의 highlight는 그 카드에서 시청자가 꼭 기억해야 할 말이다. stat이 있으면 화면에 크게 뜬다.
 - 소제목(heading)은 다음 장을 넘기고 싶게 질문형이나 미완결형을 써도 된다. 단, 그 답은 같은 카드 본문에 반드시 있다.
 - 영상이 답하지 않는 궁금증은 만들지 않는다. 낚시·과장·공포 조장 금지. 금지어: 충격, 경악, 실화, 역대급, 난리, 소름, 대박, 무조건, 절대.
 - title_pool: 유튜브 제목 후보 8개를 서로 다른 기법으로 만든다. 기법 예시
@@ -83,8 +86,15 @@ WRITE_RULES = """
 - 마지막에 JSON 하나만 <json></json> 사이에 출력한다.
 """
 
-DAILY_FORMAT = """{"category":"%s","title":"표지 제목 28자 이내","subtitle":"부제 30자 이내",
-"slides":[{"heading":"소제목 16자 이내","body":"본문 2~3문장 %d자 이내"}, … 4개],
+DAILY_FORMAT = """{"category":"%s",
+"kicker":"표지 맨 위 질문 한 줄 12자 이내 (예: 규제했는데 왜?)",
+"big_number":"표지 한가운데 크게 들어갈 숫자 하나, 단위 포함 8자 이내 (예: 10.41%%). 쓸 수 있는 숫자 목록에서만",
+"big_label":"그 숫자가 무엇인지 18자 이내 (예: 서울 아파트값 1년 상승률)",
+"title":"표지 제목 24자 이내","subtitle":"부제 30자 이내 — 궁금증을 반만 풀기",
+"slides":[{"heading":"소제목 16자 이내","body":"본문 2~3문장 %d자 이내",
+  "highlight":"본문 속에 글자 그대로 있는 가장 중요한 구절 4~18자 (형광펜 강조)",
+  "stat":"본문 속에 글자 그대로 있는 핵심 숫자 1개(단위 포함), 없으면 빈칸"}, … 4개],
+"outro_question":"마지막 장 질문 20자 이내, 시청자가 댓글로 답하고 싶게",
 "source":"출처: 언론사·기관명(발표 연월)",
 "evidence":{"1번 카드":["F1"],"2번 카드":["F3"],"3번 카드":["F4"],"4번 카드":["F6"]},
 "title_pool":[{"title":"…","기법":"…","호기심":5,"정확성":5}, … 8개],
@@ -408,7 +418,8 @@ def run_daily(settings, history, now, out):
     summary = "[오늘의 이슈 목록]\n" + "\n".join(f"{i}. ({r['spec'].get('category')}) {r['spec']['yt_titles'][0]}" for i, r in results)
     if fails:
         summary += "\n\n[오늘 빠진 이슈 — 사실 검사를 통과하지 못해 보내지 않았어요]\n" + "\n".join(f"· {x}" for x in fails)
-    body = f"오늘의 이슈 {len(results)}건 · 재생 속도 {settings.get('쇼츠_재생속도', '보통')}\n\n{summary}\n\n{guide}" + \
+    themes = ", ".join(dict.fromkeys(r["spec"].get("_theme", "") for _, r in results))
+    body = f"오늘의 디자인 테마: {themes}\n오늘의 이슈 {len(results)}건 · 재생 속도 {settings.get('쇼츠_재생속도', '보통')}\n\n{summary}\n\n{guide}" + \
         "".join(issue_block(i, len(cats), r) for i, r in results)
     subject = f"[오늘의 이슈] {now:%m/%d} {len(results)}건 · {results[0][1]['spec']['yt_titles'][0]}"
     if USE_SAMPLE:

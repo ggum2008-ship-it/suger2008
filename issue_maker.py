@@ -125,48 +125,9 @@ def s_frame(c, idx, total, spec):
     return im, d
 
 def shorts(spec, out):
-    c = color(spec.get("category")); n = len(spec["slides"]); total = n + 2
-    imgs = []
-    im, d = s_frame(c, 1, total, spec)
-    d.text((80, 520), "오늘의 이슈", font=F("Bold", 44), fill=c)
-    y = lines_at(d, 80, 600, wrap(d, spec["title"], F("Black", 96), SW - 160), F("Black", 96), INK, 22)
-    d.rectangle([80, y + 40, 220, y + 52], fill=c)
-    lines_at(d, 80, y + 100, wrap(d, spec.get("subtitle", ""), F("Medium", 46), SW - 160), F("Medium", 46), SUB, 18)
-    imgs.append(im)
-    for i, s in enumerate(spec["slides"], 2):
-        im, d = s_frame(c, i, total, spec)
-        d.text((80, 420), f"{i - 1:02d}", font=F("Black", 120), fill=c)
-        y = lines_at(d, 80, 600, wrap(d, s["heading"], F("Bold", 72), SW - 160), F("Bold", 72), INK, 18)
-        lines_at(d, 80, y + 70, wrap(d, s["body"], F("Regular", 50), SW - 160), F("Regular", 50), INK, 30)
-        imgs.append(im)
-    im, d = s_frame(c, total, total, spec)
-    y = 700
-    if spec.get("comment"):
-        d.text((80, 520), "운영자 한마디", font=F("Bold", 44), fill=c)
-        y = lines_at(d, 80, 600, wrap(d, spec["comment"], F("Medium", 52), SW - 160), F("Medium", 52), INK, 20) + 120
-    y = lines_at(d, 80, y, ["오늘의 이슈,", "어떻게 보셨나요?"], F("Black", 88), INK, 24)
-    d.text((80, y + 40), "댓글로 의견을 남겨주세요", font=F("Medium", 48), fill=c)
-    d.text((80, y + 120), "구독하고 매일 이슈를 받아보세요", font=F("Regular", 44), fill=SUB)
-    imgs.append(im)
-
-    paths = []
-    for i, im in enumerate(imgs, 1):
-        p = os.path.join(out, f"card_{i:02d}.png"); im.save(p); paths.append(p)
-    durs = [sec(3, spec)] + [sec(6, spec)] * n + [sec(4, spec)]
-    args = ["ffmpeg", "-y", "-loglevel", "error"]
-    for p, t in zip(paths, durs):
-        args += ["-loop", "1", "-t", str(t), "-i", p]
-    fade, chain, off, prev = 0.5, [], 0, "[0:v]"
-    for i in range(1, len(paths)):
-        off += durs[i - 1] - fade; tag = f"[v{i}]"
-        chain.append(f"{prev}[{i}:v]xfade=transition=slideleft:duration={fade}:offset={off}{tag}"); prev = tag
-    args += ["-filter_complex", ";".join(chain), "-map", prev, "-r", "30",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p", os.path.join(out, "shorts.mp4")]
-    subprocess.run(args, check=True)
-    prev_im = Image.new("RGB", (370 * len(paths) - 10, 640), "white")
-    for i, p in enumerate(paths):
-        prev_im.paste(Image.open(p).resize((360, 640)), (i * 370, 0))
-    prev_im.save(os.path.join(out, "preview.png"))
+    import design
+    theme, secs = design.render(spec, out, sec)
+    spec["_theme"] = theme
     write_upload(spec, out, "shorts")
     print("완료:", out)
 
